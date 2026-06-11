@@ -1,0 +1,9 @@
+.env
+__pycache__/
+.DS_Store
+.idea/
+.venv/
+.find-oss/
+output/
+.pytest_cache/
+.ruff_cache/

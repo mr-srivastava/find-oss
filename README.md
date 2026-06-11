@@ -1,54 +1,139 @@
-# FindOss Crew
+# Find OSS
 
-Welcome to the FindOss Crew project, powered by [crewAI](https://crewai.com). This template is designed to help you set up a multi-agent AI system with ease, leveraging the powerful and flexible framework provided by crewAI. Our goal is to enable your agents to collaborate effectively on complex tasks, maximizing their collective intelligence and capabilities.
+Find OSS is a local CrewAI application that finds open-source tools and
+contribution opportunities from a natural-language request. It combines
+bounded GitHub API searches with selective semantic repository search, ranks
+the results, cites GitHub evidence, and writes a Markdown report.
 
-## Installation
+The GitHub integration is read-only. Find OSS exposes only search and
+inspection operations and doesn't require Docker.
 
-Ensure you have Python >=3.10 <3.14 installed on your system. This project uses [UV](https://docs.astral.sh/uv/) for dependency management and package handling, offering a seamless setup and execution experience.
+## How discovery works
 
-First, if you haven't already, install uv:
+Find OSS uses a hybrid retrieval flow to control cost and report quality:
+
+1. One structured OpenAI call converts your request into search constraints.
+2. Custom CrewAI tools query the GitHub REST API for compact repository and
+   open-issue metadata.
+3. Python deduplicates, filters, scores, and shortlists the results.
+4. CrewAI's `GithubSearchTool` semantically inspects at most five shortlisted
+   repositories when repository documentation needs more context.
+5. One structured OpenAI call writes the concise report summary.
+
+The application doesn't send raw GitHub responses, complete issue timelines,
+commit histories, or full repository trees to the model. Numeric scores come
+from deterministic Python rules rather than the model.
+
+## Requirements
+
+Install the following software and credentials:
+
+- Python 3.10 through 3.13
+- [uv](https://docs.astral.sh/uv/)
+- A GitHub fine-grained personal access token with read-only access
+- An OpenAI API key
+
+Docker and the GitHub MCP server aren't required.
+
+## Install
+
+Install the project and development dependencies:
 
 ```bash
-pip install uv
+uv sync --all-groups
 ```
 
-Next, navigate to your project directory and install the dependencies:
+Create a `.env` file:
 
-(Optional) Lock the dependencies and install them by using the CLI command:
-```bash
-crewai install
+```dotenv
+MODEL=openai/gpt-4o-mini
+OPENAI_API_KEY=your-openai-api-key
+GITHUB_PERSONAL_ACCESS_TOKEN=your-read-only-github-token
 ```
-### Customizing
 
-**Add your `OPENAI_API_KEY` into the `.env` file**
+Don't grant write permissions to the GitHub token. Find OSS doesn't need them.
+The `.env` file is ignored by Git.
 
-- Modify `src/find_oss/config/agents.yaml` to define your agents
-- Modify `src/find_oss/config/tasks.yaml` to define your tasks
-- Modify `src/find_oss/crew.py` to add your own logic, tools and specific args
-- Modify `src/find_oss/main.py` to add custom inputs for your agents and tasks
+## Search
 
-## Running the Project
-
-To kickstart your crew of AI agents and begin task execution, run this from the root folder of your project:
+Run a unified search for tools and contribution opportunities:
 
 ```bash
-$ crewai run
+uv run find_oss search \
+  "Find self-hosted Python AI coding tools and beginner issues for a weekend"
 ```
 
-This command initializes the find-oss Crew, assembling the agents and assigning them tasks as defined in your configuration.
+The command prints a count and report path. Reports are stored under `output/`
+with a UTC timestamp and a query-derived slug.
 
-This example, unmodified, will run the create a `report.md` file with the output of a research on LLMs in the root folder.
+Each report contains:
 
-## Understanding Your Crew
+- Ranked open-source tools
+- Ranked contribution opportunities
+- GitHub evidence links
+- Deterministic score breakdowns, caveats, and suggested next actions
+- Explicit messages when either section has no credible matches
+- Request, semantic-search, token, latency, and rate-limit metrics
 
-The find-oss Crew is composed of multiple AI agents, each with unique roles, goals, and tools. These agents collaborate on a series of tasks, defined in `config/tasks.yaml`, leveraging their collective skills to achieve complex objectives. The `config/agents.yaml` file outlines the capabilities and configurations of each agent in your crew.
+## Token and request controls
 
-## Support
+Each run uses these default ceilings:
 
-For support, questions, or feedback regarding the FindOss Crew or crewAI.
-- Visit our [documentation](https://docs.crewai.com)
-- Reach out to us through our [GitHub repository](https://github.com/joaomdmoura/crewai)
-- [Join our Discord](https://discord.com/invite/X4JWnZnxPb)
-- [Chat with our docs](https://chatg.pt/DWjSBZn)
+- 20 repository search candidates
+- 30 open-issue search candidates
+- 5 semantically enriched repositories
+- 5 semantic results per repository
+- 2 structured agent calls
 
-Let's create wonders together with the power and simplicity of crewAI.
+Identical GitHub reads are cached within a run. Semantic-search failures produce
+warnings and don't discard candidates supported by GitHub API evidence.
+
+## Save searches
+
+Saved searches store reusable natural-language queries. Version 1 supports
+manual reruns only.
+
+```bash
+uv run find_oss save "Weekend AI" \
+  "Find beginner-friendly Python AI agent issues I can finish this weekend"
+
+uv run find_oss saved list
+uv run find_oss saved run "weekend-ai"
+uv run find_oss saved update "weekend-ai" \
+  "Find beginner-friendly TypeScript AI agent issues"
+uv run find_oss saved delete "weekend-ai"
+```
+
+Find OSS stores saved searches in `.find-oss/saved-searches.yaml`. Each entry
+contains a schema version, display name, stable slug, query, creation time, and
+update time. Writes replace the file atomically.
+
+Use `--store PATH` to select another saved-search file and `--output-dir PATH`
+to select another report directory:
+
+```bash
+uv run find_oss --store searches/team.yaml --output-dir reports \
+  saved run "weekend-ai"
+```
+
+## Reliability and privacy
+
+Find OSS distinguishes GitHub authentication, permissions, validation, rate
+limits, network failures, OpenAI timeouts, and malformed structured output.
+Errors don't print credentials.
+
+OpenAI requests use a 90-second timeout and three SDK retries. CrewAI telemetry
+is disabled by default. CrewAI runtime storage stays under
+`.find-oss/crewai-storage/`.
+
+## Development
+
+Run the automated checks:
+
+```bash
+uv run pytest
+uv run ruff check .
+```
+
+A live smoke search requires valid GitHub and OpenAI credentials and network
+access.
